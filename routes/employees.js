@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const bcrypt = require('bcryptjs'); // ← ADD THIS
 const { protect, adminOnly } = require('../middleware/auth');
 
 // GET all employees
@@ -24,17 +25,30 @@ router.get('/:id', protect, async (req, res) => {
   }
 });
 
-// POST add employee
+// POST add employee — password is now hashed ✅
 router.post('/', protect, adminOnly, async (req, res) => {
   try {
     const { name, email, password, department, position, phone } = req.body;
+
+    // Check if email already exists
     const exists = await User.findOne({ email });
     if (exists) return res.status(400).json({ message: 'Email already exists' });
-    const employee = await User.create({ 
-      name, email, password, 
-      department, position, 
-      phone, role: 'employee' 
+
+    // Hash the password before saving ✅
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create employee with hashed password
+    const employee = await User.create({
+      name,
+      email,
+      password: hashedPassword, // ← hashed ✅
+      department,
+      position,
+      phone,
+      role: 'employee'
     });
+
     res.status(201).json({ ...employee._doc, password: undefined });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -44,6 +58,11 @@ router.post('/', protect, adminOnly, async (req, res) => {
 // PUT update employee
 router.put('/:id', protect, adminOnly, async (req, res) => {
   try {
+    // If password is being updated, hash it too
+    if (req.body.password) {
+      const salt = await bcrypt.genSalt(10);
+      req.body.password = await bcrypt.hash(req.body.password, salt);
+    }
     const employee = await User.findByIdAndUpdate(
       req.params.id, req.body, { new: true }
     ).select('-password');
